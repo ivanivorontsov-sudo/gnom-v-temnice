@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Гном в темнице — Sega Mega Drive</title>
+  <style>
+    body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: #140f0c; color: #f4e7c8; }
+    main { max-width: 920px; margin: 0 auto; padding: 28px 16px 64px; }
+    h1 { font-size: 2rem; margin: 0 0 8px; color: #e8cc60; }
+    .sub { color: #c4b48a; margin-bottom: 24px; }
+    .shots { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+    .shots img { width: 300px; max-width: 100%; image-rendering: pixelated; background: #000; border: 2px solid #3a2a1c; }
+    .btn { display: inline-block; margin: 8px 8px 8px 0; padding: 10px 18px; background: #8a3030; color: #fff; text-decoration: none; border-radius: 6px; }
+    .btn:hover { background: #a33c3c; }
+    #game { max-width: 640px; height: 448px; margin: 24px 0; background: #000; }
+    footer { margin-top: 32px; color: #8a7a62; font-size: 0.9rem; }
+    a { color: #e8cc60; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Гном в темнице</h1>
+    <p class="sub">Роглайк для Sega Mega Drive / Genesis</p>
+    <p>Гном попал в темницу гоблинов. Собирайте золото, зачищайте комнаты и сразитесь с королём гоблинов.</p>
+    <p>
+      <a class="btn" href="https://github.com/ivanivorontsov-sudo/gnom-v-temnice/releases/tag/v1.0.0">Скачать v1.0.0</a>
+      <a class="btn" href="gnom-v-temnice.bin">ROM .bin</a>
+      <a class="btn" href="https://github.com/ivanivorontsov-sudo/gnom-v-temnice">Исходники</a>
+    </p>
+    <div class="shots">
+      <img src="title.png" alt="Титульный экран">
+      <img src="gameplay.png" alt="Игровой процесс">
+      <img src="boss.png" alt="Король гоблинов">
+    </div>
+    <p>Крест — ходьба, A/B — кирка, C — бомба, Start — пауза.</p>
+    <h2>Играть в браузере</h2>
+    <div id="game"></div>
+    <script>
+      EJS_player = '#game';
+      EJS_core = 'segaMD';
+      EJS_gameName = 'Гном в темнице';
+      EJS_gameUrl = 'gnom-v-temnice.bin';
+      EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+    </script>
+    <script src="https://cdn.emulatorjs.org/stable/data/loader.js"></script>
+    <footer>Сторонние материалы и лицензии — в файле THIRD_PARTY.md репозитория.</footer>
+  </main>
+</body>
+</html>

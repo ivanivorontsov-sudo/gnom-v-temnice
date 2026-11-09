@@ -1,0 +1,36 @@
+#ifndef FONTMAP_H
+#define FONTMAP_H
+#define FONT_COUNT 81
+#define FONT_TOTAL 87
+#define FONT_TILES_PER 2
+#define ICON_HEART_F 81
+#define ICON_HEART_H 82
+#define ICON_HEART_E 83
+#define ICON_KEY 84
+#define ICON_COIN 85
+#define ICON_BOMB 86
+#define MT_COUNT 22
+#define MT_FLOOR1 0
+#define MT_FLOOR2 1
+#define MT_FLOOR3 2
+#define MT_FLOOR4 3
+#define MT_FLOOR5 4
+#define MT_WALL 5
+#define MT_WALL_TOP 6
+#define MT_WALL_SIDE 7
+#define MT_DOOR_C 8
+#define MT_DOOR_O 9
+#define MT_DOOR_L 10
+#define MT_STAIRS 11
+#define MT_LADDER 12
+#define MT_PEDESTAL 13
+#define MT_SKULL 14
+#define MT_BANNER_R 15
+#define MT_BANNER_G 16
+#define MT_BOSS_FL 17
+#define MT_CARPET 18
+#define MT_VOID 19
+#define MT_SPIKES 20
+#define MT_FLOOR6 21
+static const u16 FONT_CPS[FONT_COUNT] = { 32, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 1040, 1041, 1042, 1043, 1044, 1045, 1025, 1046, 1047, 1048, 1049, 1050, 1051, 1052, 1053, 1054, 1055, 1056, 1057, 1058, 1059, 1060, 1061, 1062, 1063, 1064, 1065, 1066, 1067, 1068, 1069, 1070, 1071, 46, 44, 58, 33, 63, 45, 43, 47, 40, 41, 42 };
+#endif

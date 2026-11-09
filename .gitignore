@@ -1,0 +1,6 @@
+out/
+*.o
+*.out
+res/resources.h
+gnom-v-temnice.bin
+.DS_Store
