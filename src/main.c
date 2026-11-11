@@ -1,13 +1,12 @@
 #include <genesis.h>
 #include "fontmap.h"
 #include "resources.h"
+#include "dungeon.h"
 
 #define MAP_W 20
 #define MAP_H 12
 #define HUD_H 32
 #define TS 16
-#define GRID 7
-#define MAX_ROOMS 12
 #define MAX_EN 8
 #define MAX_SHOT 8
 #define MAX_DROP 16
@@ -27,10 +26,6 @@
 #define AI_SHAMAN 4
 #define AI_BOSS   5
 
-#define RT_START 0
-#define RT_NORMAL 1
-#define RT_ITEM 2
-#define RT_BOSS 3
 
 #define DROP_GOLD 0
 #define DROP_HEART 1
@@ -94,10 +89,6 @@ typedef struct {
     Sprite *spr;
 } Bomb;
 
-typedef struct {
-    u8 gx, gy, type, doors, cleared, visited, key_drop, used;
-} Room;
-
 static u16 font_base, dung_base, logo_base;
 static u8 cmap[MAP_H][MAP_W];
 static u8 tmap[MAP_H][MAP_W];
@@ -115,6 +106,8 @@ static u16 joy, joy_prev, frames, banner_t, msg_t, scroll;
 static u32 best_score, seed;
 static char msg[32];
 static u8 music_on;
+static u8 grace_t, flash_t;
+static u16 room_clock;
 
 static const char *item_name[6] = {
     "ОСТРАЯ КИРКА",
@@ -287,6 +280,43 @@ static Room *room_at(u8 gx, u8 gy)
     return NULL;
 }
 
+static const SpriteDefinition *en_sprite_def(u8 ai)
+{
+    if (ai == AI_SHAMAN || ai == AI_ARCHER) return &sprShaman;
+    if (ai == AI_WANDER || ai == AI_AMBUSH) return &sprOrc;
+    return &sprGoblin;
+}
+
+static int en_is_tall(u8 ai)
+{
+    return (ai == AI_WANDER || ai == AI_AMBUSH || ai == AI_ARCHER || ai == AI_SHAMAN || ai == AI_BOSS);
+}
+
+static int tile_empty(s16 mx, s16 my)
+{
+    if (mx < 1 || my < 1 || mx >= MAP_W - 1 || my >= MAP_H - 1) return 0;
+    return cmap[my][mx] == C_EMPTY;
+}
+
+static int pick_spawn_xy(s16 *ox, s16 *oy, s16 ax, s16 ay, s16 mindist)
+{
+    u8 t;
+    for (t = 0; t < 48; t++) {
+        u8 mx = 2 + rnd(MAP_W - 4);
+        u8 my = 2 + rnd(MAP_H - 4);
+        s16 x, y;
+        if (!tile_empty(mx, my)) continue;
+        x = (s16)mx * TS + 2;
+        y = HUD_H + (s16)my * TS + 2;
+        if (box_solid(x, y, 12, 12)) continue;
+        if (iabs(x - ax) + iabs(y - ay) < mindist) continue;
+        *ox = x;
+        *oy = y;
+        return 1;
+    }
+    return 0;
+}
+
 static void draw_mt(u16 mx, u16 my, u16 mt)
 {
     u16 t = dung_base + mt * 4;
@@ -421,7 +451,9 @@ static Enemy *spawn_en(s16 x, s16 y, u8 ai, s16 hp)
             if (sBoss) { show_sprite(sBoss); SPR_setPosition(sBoss, x - 8, y - 16); }
             hide_sprite(ens[i].spr);
         } else if (ens[i].spr) {
-            SPR_setPosition(ens[i].spr, x, y);
+            SPR_setDefinition(ens[i].spr, en_sprite_def(ai));
+            SPR_setVisibility(ens[i].spr, VISIBLE);
+            SPR_setPosition(ens[i].spr, x, y + (en_is_tall(ai) ? -16 : 0));
         }
         return &ens[i];
     }
@@ -440,9 +472,10 @@ static void spawn_room_enemies(Room *r)
     n = 2 + floor_n + rnd(2);
     if (n > 6) n = 6;
     for (i = 0; i < n; i++) {
-        s16 x = 48 + rnd(224);
-        s16 y = HUD_H + 32 + rnd(128);
-        u8 roll = rnd(100);
+        s16 x, y;
+        u8 roll;
+        if (!pick_spawn_xy(&x, &y, P.x, P.y, 56)) continue;
+        roll = rnd(100);
         if (floor_n == 1) {
             if (roll < 50) ai = AI_CHASE;
             else if (roll < 70) ai = AI_AMBUSH;
@@ -468,66 +501,14 @@ static void spawn_room_enemies(Room *r)
 
 static void gen_floor(void)
 {
-    u8 i, ntarget, cx, cy, furthest, fur_d, item_i;
-    u16 guard;
-    memset(grid, 0, sizeof(grid));
-    memset(rooms, 0, sizeof(rooms));
-    room_n = 0;
+    u8 attempt;
     boss_unlocked = 0;
     key_given = 0;
-    cx = 3; cy = 3;
-    rooms[0].gx = cx; rooms[0].gy = cy; rooms[0].type = RT_START; rooms[0].used = 1;
-    grid[cy][cx] = 1;
-    room_n = 1;
-    ntarget = 8 + rnd(5);
-    if (ntarget > MAX_ROOMS) ntarget = MAX_ROOMS;
-    guard = 0;
-    while (room_n < ntarget && guard++ < 400) {
-        u8 dir = rnd(4);
-        s16 nx = (s16)cx + ddx[dir];
-        s16 ny = (s16)cy + ddy[dir];
-        if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID) continue;
-        cx = (u8)nx; cy = (u8)ny;
-        if (!grid[cy][cx]) {
-            grid[cy][cx] = room_n + 1;
-            rooms[room_n].gx = cx;
-            rooms[room_n].gy = cy;
-            rooms[room_n].type = RT_NORMAL;
-            rooms[room_n].used = 1;
-            room_n++;
-        }
+    for (attempt = 0; attempt < 24; attempt++) {
+        dgen_floor(rooms, &room_n, grid, rnd);
+        if (dvalidate_floor(rooms, room_n, NULL, 0)) break;
     }
-    furthest = 1; fur_d = 0;
-    for (i = 1; i < room_n; i++) {
-        u8 d = (u8)(iabs((s16)rooms[i].gx - 3) + iabs((s16)rooms[i].gy - 3));
-        if (d > fur_d) { fur_d = d; furthest = i; }
-    }
-    rooms[furthest].type = RT_BOSS;
-    item_i = 1;
-    fur_d = 0;
-    for (i = 1; i < room_n; i++) {
-        u8 d;
-        if (i == furthest) continue;
-        d = (u8)(iabs((s16)rooms[i].gx - 3) + iabs((s16)rooms[i].gy - 3));
-        if (d >= fur_d) { fur_d = d; item_i = i; }
-    }
-    rooms[item_i].type = RT_ITEM;
-    /* key in a normal room */
-    for (i = 1; i < room_n; i++) {
-        if (rooms[i].type == RT_NORMAL) { rooms[i].key_drop = 1; break; }
-    }
-    for (i = 0; i < room_n; i++) {
-        u8 d;
-        rooms[i].doors = 0;
-        rooms[i].cleared = (rooms[i].type == RT_START || rooms[i].type == RT_ITEM) ? 1 : 0;
-        rooms[i].visited = 0;
-        for (d = 0; d < 4; d++) {
-            s16 nx = (s16)rooms[i].gx + ddx[d];
-            s16 ny = (s16)rooms[i].gy + ddy[d];
-            if (nx >= 0 && ny >= 0 && nx < GRID && ny < GRID && grid[ny][nx])
-                rooms[i].doors |= (u8)(1 << d);
-        }
-    }
+    dfix_floor(rooms, room_n);
 }
 
 static int door_locked(Room *r, u8 dir)
@@ -594,16 +575,39 @@ static void build_room(Room *r, int closed)
             draw_mt(x, y, tmap[y][x]);
 }
 
-static u8 count_alive(void)
+static u8 count_alive_reachable(void)
 {
     u8 i, n = 0;
-    for (i = 0; i < MAX_EN; i++) if (ens[i].alive) n++;
+    for (i = 0; i < MAX_EN; i++) if (ens[i].alive) {
+        if (ens[i].x < 12 || ens[i].x > 300 || ens[i].y < HUD_H + 8 || ens[i].y > 214
+            || box_solid(ens[i].x + 2, ens[i].y + 2, 8, 8)) {
+            ens[i].alive = 0;
+            hide_sprite(ens[i].spr);
+            if (ens[i].ai == AI_BOSS) hide_sprite(sBoss);
+            continue;
+        }
+        n++;
+    }
     return n;
 }
 
 static void open_doors_now(Room *r)
 {
     build_room(r, 0);
+}
+
+static void snap_player_safe(void)
+{
+    u8 t;
+    if (!box_solid(P.x, P.y, 12, 14)) return;
+    P.x = 152;
+    P.y = HUD_H + 88;
+    if (!box_solid(P.x, P.y, 12, 14)) return;
+    for (t = 0; t < 40; t++) {
+        s16 x = 32 + (s16)rnd(240);
+        s16 y = HUD_H + 32 + (s16)rnd(120);
+        if (!box_solid(x, y, 12, 14)) { P.x = x; P.y = y; return; }
+    }
 }
 
 static void place_player_from(u8 from_dir)
@@ -613,6 +617,7 @@ static void place_player_from(u8 from_dir)
     else if (from_dir == 2) { P.x = 20; P.y = HUD_H + 88; P.fx = 1; P.fy = 0; }
     else if (from_dir == 3) { P.x = (MAP_W - 2) * TS - 4; P.y = HUD_H + 88; P.fx = -1; P.fy = 0; }
     else { P.x = 152; P.y = HUD_H + 88; P.fx = 0; P.fy = 1; }
+    snap_player_safe();
 }
 
 static void enter_room(u8 gx, u8 gy, s16 from_dir)
@@ -644,6 +649,8 @@ static void enter_room(u8 gx, u8 gy, s16 from_dir)
             add_drop(MAP_W / 2 * TS, HUD_H + MAP_H / 2 * TS - 16, DROP_ITEM, choice);
     }
     place_player_from((from_dir < 0) ? 255 : (u8)from_dir);
+    grace_t = TRANSITION_GRACE;
+    room_clock = 0;
     for (i = 0; i < 4; i++) { /* dummy keep compiler calm */ }
 }
 
@@ -682,9 +689,10 @@ static void give_item(u8 id)
 
 static void hurt_player(u8 dmg)
 {
-    if (P.iframes) return;
+    if (P.iframes || grace_t) return;
     if (P.hp <= dmg) P.hp = 0; else P.hp -= dmg;
     P.iframes = P.cloak ? 90 : 50;
+    flash_t = 10;
     sfx_play(sfxHurt, sizeof(sfxHurt));
     if (P.hp == 0) {
         state = ST_DEAD;
@@ -699,8 +707,8 @@ static void kill_en(Enemy *e)
     hide_sprite(e->spr);
     if (e->ai == AI_BOSS) hide_sprite(sBoss);
     P.score += (e->ai == AI_BOSS) ? 500 : 10;
-    if (rnd(5) == 0) add_drop(e->x, e->y, DROP_HEART, 2);
-    else if (rnd(6) == 0) add_drop(e->x, e->y, DROP_FOOD, 3);
+    if (rnd(4) == 0) add_drop(e->x, e->y, DROP_HEART, 2);
+    else if (rnd(3) == 0) add_drop(e->x, e->y, DROP_FOOD, 3);
     else add_drop(e->x + 2, e->y + 2, DROP_GOLD, (u8)(2 + rnd(4)));
 }
 
@@ -718,7 +726,11 @@ static void check_room_clear(void)
     Room *r = &rooms[cur_ri];
     if (r->cleared) return;
     if (r->type != RT_NORMAL && r->type != RT_BOSS) return;
-    if (count_alive()) return;
+    room_clock++;
+    if (count_alive_reachable()) {
+        if (room_clock < ROOM_FAILSAFE_FRAMES) return;
+        show_msg("ДВЕРИ ОТКРЫТЫ");
+    }
     r->cleared = 1;
     open_doors_now(r);
     sfx_play(sfxDoor, sizeof(sfxDoor));
@@ -728,6 +740,7 @@ static void check_room_clear(void)
     } else {
         add_drop(152, HUD_H + 88, DROP_GOLD, 8);
     }
+    if (rnd(2) == 0) add_drop(136, HUD_H + 72, DROP_FOOD, 3);
     if (r->type == RT_BOSS) {
         cmap[MAP_H / 2][MAP_W / 2] = C_STAIRS;
         tmap[MAP_H / 2][MAP_W / 2] = MT_STAIRS;
@@ -806,7 +819,12 @@ static void update_ai(Enemy *e)
         }
         if (e->hp < e->hpmax / 2 && !e->flag) {
             e->flag = 1;
-            spawn_en(e->x + 20, e->y, AI_CHASE, 2 + floor_n);
+            {
+                s16 mx = e->x + 20, my = e->y;
+                if (box_solid(mx, my, 12, 12))
+                    pick_spawn_xy(&mx, &my, P.x, P.y, 40);
+                spawn_en(mx, my, AI_CHASE, 2 + floor_n);
+            }
         }
         step = (e->timer > 90 && e->timer < 130) ? 2 : 1;
     }
@@ -1016,14 +1034,31 @@ static void update_player(void)
     if (P.power) P.power--;
 
     P.hung_t++;
-    if (P.hung_t >= 18 * 60) {
-        P.hung_t = 0;
-        if (P.hunger) P.hunger--;
+    if (P.hunger > 0) {
+        if (P.hung_t >= HUNGER_TICK_FRAMES) {
+            P.hung_t = 0;
+            P.hunger--;
+            if (P.hunger == 2) {
+                show_msg("ХОЧЕТСЯ ЕСТЬ");
+                sfx_play(sfxSelect, sizeof(sfxSelect));
+            }
+            if (P.hunger == 0) show_msg("ГОЛОД");
+        }
+    } else if (!grace_t) {
+        if (P.hung_t >= STARVE_FRAMES) {
+            P.hung_t = 0;
+            show_msg("ГОЛОД");
+            hurt_player(1);
+        }
     }
-    if (P.hunger == 0 && (frames % 600) == 0) hurt_player(1);
 
-    /* doors / stairs under feet */
+    /* doors / stairs under feet, or directly in front so a player
+       standing on the last floor tile still triggers a door opening */
     c = cell_at(P.x + 6, P.y + 10);
+    if (!((c >= C_DOOR && c < C_DOOR + 4) || (c >= C_LOCK && c < C_LOCK + 4) || c == C_STAIRS)) {
+        if (P.fx || P.fy)
+            c = cell_at(P.x + 6 + (s16)P.fx * 14, P.y + 10 + (s16)P.fy * 12);
+    }
     if (c >= C_DOOR && c < C_DOOR + 4) {
         dir = (u8)(c - C_DOOR);
         enter_room((u8)(rooms[cur_ri].gx + ddx[dir]), (u8)(rooms[cur_ri].gy + ddy[dir]), (s16)(dir ^ 1));
@@ -1058,12 +1093,12 @@ static void update_sprites_en(void)
             continue;
         }
         if (!ens[i].spr) continue;
-        sy = (ens[i].ai >= AI_ARCHER) ? ens[i].y - 16 : ens[i].y;
+        sy = ens[i].y + (en_is_tall(ens[i].ai) ? -16 : 0);
         show_sprite(ens[i].spr);
         SPR_setFrame(ens[i].spr, fr + 4);
         SPR_setPosition(ens[i].spr, ens[i].x, sy);
         SPR_setHFlip(ens[i].spr, P.x < ens[i].x);
-        if (ens[i].fear && (frames & 2)) SPR_setVisibility(ens[i].spr, HIDDEN);
+        SPR_setVisibility(ens[i].spr, (ens[i].fear && (frames & 2)) ? HIDDEN : VISIBLE);
     }
 }
 
@@ -1089,17 +1124,21 @@ static void draw_hud(void)
     draw_str(33, 0, "С");
     draw_num(35, 0, P.score % 100000, 5);
 
-    if (msg_t) {
-        draw_str(1, 2, msg);
-        msg_t--;
-    } else {
+    {
         u8 k;
-        draw_str(1, 2, "СЫТ");
+        u8 warn = (P.hunger <= 2);
+        if (warn && (frames & 16)) draw_str(1, 2, P.hunger ? "ЕДА" : "ГОЛОД");
+        else draw_str(1, 2, "СЫТ");
         for (k = 0; k < 8; k++)
-            draw_ch((u16)(5 + k), 2, (k < P.hunger) ? map_cp((u16)'*') : map_cp((u16)'-'), PAL3);
-        if (P.power) draw_str(16, 2, "СИЛА");
-        if (rooms[cur_ri].type == RT_BOSS) draw_str(22, 2, "КОРОЛЬ");
-        if (rooms[cur_ri].type == RT_ITEM) draw_str(22, 2, "ДАРЫ");
+            draw_ch((u16)(6 + k), 2, (k < P.hunger) ? map_cp((u16)'*') : map_cp((u16)'-'), PAL3);
+        if (P.power) draw_str(15, 2, "СИЛА");
+        if (msg_t) {
+            draw_str(20, 2, msg);
+            msg_t--;
+        } else {
+            if (rooms[cur_ri].type == RT_BOSS) draw_str(22, 2, "КОРОЛЬ");
+            if (rooms[cur_ri].type == RT_ITEM) draw_str(22, 2, "ДАРЫ");
+        }
     }
 }
 
@@ -1108,12 +1147,13 @@ static void update_player_spr(void)
     u8 fr;
     if (!sPlayer) return;
     SPR_setVisibility(sPlayer, VISIBLE);
-    if (P.attack) fr = (u8)(9 + (16 - P.attack) / 6);
+    if (P.attack) fr = (u8)(8 + (16 - P.attack) / 5);
     else if (P.moving) fr = (u8)(4 + (frames / 6) % 4);
     else fr = (u8)((frames / 12) % 4);
+    if (fr > 11) fr = 11;
     if (!(P.iframes && (frames & 2))) {
         SPR_setVisibility(sPlayer, VISIBLE);
-        SPR_setFrame(sPlayer, fr > 11 ? 11 : fr);
+        SPR_setFrame(sPlayer, fr);
         SPR_setHFlip(sPlayer, P.fx < 0);
         SPR_setPosition(sPlayer, P.x - 2, P.y - 16);
     } else {
@@ -1153,7 +1193,8 @@ static void start_run(void)
     P.hp = 6; P.hpmax = 6;
     P.bombs = 3; P.dmg = 1; P.speed = 2;
     P.fx = 0; P.fy = 1;
-    P.hunger = 8;
+    P.hunger = HUNGER_MAX;
+    P.hung_t = 0;
     floor_n = 1;
     seed = frames | 1;
     setRandomSeed((u16)seed);
@@ -1161,6 +1202,7 @@ static void start_run(void)
     /* place a power gem somewhere on floor 1 start adjacent later via drops */
     enter_room(3, 3, -1);
     add_drop(120, HUD_H + 60, DROP_GEM, 1);
+    add_drop(184, HUD_H + 60, DROP_FOOD, 4);
     show_msg("ЭТАЖ");
     state = ST_PLAY;
     if (music_on) XGM2_play(bgmDungeon);
@@ -1262,6 +1304,12 @@ int main(bool hardReset)
             if ((joy & BUTTON_START) && !(joy_prev & BUTTON_START)) {
                 state = ST_PAUSE;
             } else {
+                if (grace_t) grace_t--;
+                if (flash_t) {
+                    VDP_setBackgroundColor((flash_t & 1) ? 5 : 1);
+                    flash_t--;
+                    if (!flash_t) VDP_setBackgroundColor(1);
+                }
                 update_player();
                 for (i = 0; i < MAX_EN; i++) if (ens[i].alive) update_ai(&ens[i]);
                 update_shots();

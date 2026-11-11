@@ -12,6 +12,15 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from gen_gnome_doors import (
+    gen_gnome_frames,
+    door_closed,
+    door_open,
+    door_locked,
+    PAL0 as DOOR_PAL,
+)
 SRC_SHEET = Path("/tmp/assets/0x72/sheet.png")
 SRC_LIST = Path("/tmp/assets/0x72/tile_list_v1.7")
 KENNEY = Path("/tmp/assets/kenney/Tilemap/tilemap_packed.png")
@@ -268,12 +277,16 @@ def main():
     banner_r = fr("wall_banner_red")
     banner_g = fr("wall_banner_green")
     spikes = fr("floor_spikes_anim_f0")
-    door_c = pad_to(fr("doors_leaf_closed"), 16, 16, True)
-    door_o = pad_to(fr("doors_leaf_open"), 16, 16, True)
-    door_l = door_c.copy()
-    # gold lock overlay
-    d = ImageDraw.Draw(door_l)
-    d.rectangle((5, 7, 10, 12), fill=(220, 180, 40, 255), outline=(90, 60, 10, 255))
+    def tile_rgba(tile):
+        im = Image.new("RGBA", (16, 16))
+        for yy in range(16):
+            for xx in range(16):
+                im.putpixel((xx, yy), (*DOOR_PAL[tile[yy][xx]], 255))
+        return im
+
+    door_c = tile_rgba(door_closed())
+    door_o = tile_rgba(door_open())
+    door_l = tile_rgba(door_locked())
     ped = pad_to(fr("crate"), 16, 16, True)
     boss_floor = tint(floor[0], (160, 30, 30), 0.4)
     carpet = tint(floor[2], (70, 50, 160), 0.4)
@@ -322,21 +335,8 @@ def main():
     to_indexed(dungeon_rgba, pal0, GFX / "dungeon.png", transparent=False)
 
     # ---- sprites ----
-    gnome = [fr(f"dwarf_m_idle_anim_f{i}") for i in range(4)]
-    gnome += [fr(f"dwarf_m_run_anim_f{i}") for i in range(4)]
-    gnome += [fr("dwarf_m_hit_anim_f0")]
-    # attack: idle + axe composite
-    axe = fr("weapon_double_axe")
-    for i in range(3):
-        base = pad_to(gnome[i % 4], 16, 32, True)
-        ax = pad_to(axe, 16, 24, True)
-        comp = base.copy()
-        ox = [2, 4, 1][i]
-        oy = [4, 2, 6][i]
-        tmp = Image.new("RGBA", (16, 32), (0, 0, 0, 0))
-        tmp.paste(ax, (ox, oy), ax)
-        comp = Image.alpha_composite(comp, tmp)
-        gnome.append(comp)
+    gnome_sheet = gen_gnome_frames()
+    gnome = [gnome_sheet.crop((i * 16, 0, i * 16 + 16, 32)).convert("RGBA") for i in range(12)]
 
     gob = [fr(f"goblin_idle_anim_f{i}") for i in range(4)]
     gob += [fr(f"goblin_run_anim_f{i}") for i in range(4)]
